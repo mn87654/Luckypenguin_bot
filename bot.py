@@ -7,7 +7,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 
 from settings import settings
 from database import init_db, get_or_create_user, SessionLocal
-from models import User, Task, TaskCompletion, Referral
+from models import User, Tahusk, TaskCompletion, Referral
 from sqlalchemy import select, delete
 from timeutil import today_key
 
@@ -229,3 +229,32 @@ async def cb_check(c: CallbackQuery):
 
     new_balance = await complete_task_and_reward(user, task, date_key)
     await c.message.answer(f"✅ Task completed: <b>{task.title}</b>\n+{task.reward} coins.\n💰 Balance: {new_balance}")
+
+from admin import admin_rt
+dp.include_router(admin_rt)
+
+# ---------- Web server (Render) ----------
+async def on_startup(app: web.Application):
+    await init_db()
+    url = settings.webhook_url()
+    if url:
+        try:
+            await bot.set_webhook(url)
+        except Exception:
+            # If it fails, still run the app; you can set webhook manually later
+            pass
+
+async def on_shutdown(app: web.Application):
+    await bot.session.close()
+
+def build_app() -> web.Application:
+    app = web.Application()
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+    SimpleRequestHandler(dispatcher=dp, bot=bot, webhook_path=settings.WEBHOOK_PATH).register(app, path=settings.WEBHOOK_PATH)
+    app.router.add_get("/", lambda r: web.Response(text="Penguin Night bot is running."))
+    return app
+
+if __name__ == "__main__":
+    app = build_app()
+    web.run_app(app, host="0.0.0.0", port=settings.PORT)
