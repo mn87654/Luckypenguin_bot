@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiogram.client.default import DefaultBotProperties
 
 from settings import settings
 from database import init_db, get_or_create_user, SessionLocal
@@ -12,7 +13,10 @@ from sqlalchemy import select, delete
 from timeutil import today_key
 
 # --- Bot & Dispatcher ---
-bot = Bot(settings.BOT_TOKEN, parse_mode="HTML")
+bot = Bot(
+    token=settings.BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode="HTML")
+)
 dp = Dispatcher()
 rt = Router()
 dp.include_router(rt)
@@ -40,7 +44,6 @@ def task_item_kb(task: Task) -> InlineKeyboardMarkup:
 
 # ---------- Helpers ----------
 async def award_referral_if_any(user: User, start_payload: str | None):
-    """Give referral coins once when a new user starts with /start <referrer_tg>."""
     if not start_payload:
         return
     try:
@@ -48,22 +51,17 @@ async def award_referral_if_any(user: User, start_payload: str | None):
     except Exception:
         return
     if ref_tg == user.tg_id:
-        return  # self-referral blocked
+        return
     async with SessionLocal() as session:
-        # Has referral already been recorded for this referred user?
         res = await session.execute(select(Referral).where(Referral.referred_tg == user.tg_id))
-        exists = res.scalar_one_or_none()
-        if exists:
+        if res.scalar_one_or_none():
             return
-        # Create referral and award
         session.add(Referral(referrer_tg=ref_tg, referred_tg=user.tg_id, reward_given=True))
-        # add coins to referrer if exists
         res2 = await session.execute(select(User).where(User.tg_id == ref_tg))
         ref_user = res2.scalar_one_or_none()
         if ref_user:
             ref_user.coins += settings.REFERRAL_REWARD
         await session.commit()
-        # Optional: tell referrer
         if ref_user:
             try:
                 await bot.send_message(ref_tg, f"🐧 Your referral joined! +{settings.REFERRAL_REWARD} coins 💰")
@@ -93,7 +91,6 @@ async def has_completed_today(user_id: int, task_id: int, date_key: str) -> bool
 
 async def complete_task_and_reward(user: User, task: Task, date_key: str):
     async with SessionLocal() as session:
-        # check again inside transaction
         res_u = await session.execute(select(User).where(User.tg_id == user.tg_id))
         db_user = res_u.scalar_one()
         res = await session.execute(
@@ -103,8 +100,7 @@ async def complete_task_and_reward(user: User, task: Task, date_key: str):
                 TaskCompletion.date_key == date_key,
             )
         )
-        already = res.scalar_one_or_none()
-        if already:
+        if res.scalar_one_or_none():
             return db_user.coins
         session.add(TaskCompletion(user_id=db_user.id, task_id=task.id, date_key=date_key))
         db_user.coins += task.reward
@@ -114,11 +110,8 @@ async def complete_task_and_reward(user: User, task: Task, date_key: str):
 # ---------- User commands ----------
 @rt.message(CommandStart())
 async def cmd_start(message: Message):
-    # Extract deep-link payload (referrer tg id)
     payload = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
     user = await get_or_create_user(message.from_user.id, message.from_user.username)
-
-    # If the user is new and came via referral -> award referrer
     await award_referral_if_any(user, payload)
 
     text = (
@@ -152,7 +145,6 @@ async def cb_balance(c: CallbackQuery):
 @rt.callback_query(F.data == "invite")
 async def cb_invite(c: CallbackQuery):
     await c.answer()
-    # Your deep-link = t.me/<bot_username>?start=<your_tg_id>
     me = await bot.get_me()
     link = f"https://t.me/{me.username}?start={c.from_user.id}"
     await c.message.edit_text(
@@ -179,14 +171,12 @@ async def cb_tasks(c: CallbackQuery):
 @rt.callback_query(F.data == "daily")
 async def cb_daily(c: CallbackQuery):
     await c.answer()
-    # Fetch the built-in daily task
     async with SessionLocal() as session:
         res = await session.execute(select(Task).where(Task.type == "daily_checkin"))
         daily = res.scalar_one()
     user = await get_or_create_user(c.from_user.id, c.from_user.username)
     day = today_key()
-    done = await has_completed_today(user.id, daily.id, day)
-    if done:
+    if await has_completed_today(user.id, daily.id, day):
         await c.message.edit_text("🎁 You already claimed today. Come back in 24h!", reply_markup=main_kb())
         return
     new_balance = await complete_task_and_reward(user, daily, day)
@@ -203,13 +193,10 @@ async def cb_check(c: CallbackQuery):
         return
 
     user = await get_or_create_user(c.from_user.id, c.from_user.username)
-    # For daily tasks, enforce daily key; otherwise ONCE
     date_key = today_key() if task.is_daily else "ONCE"
 
-    # Verify completion:
     ok = False
     if task.type == "join_channel":
-        # IMPORTANT: add the bot to the channel as Admin so it can check.
         channel = task.data.lstrip("@")
         try:
             member = await bot.get_chat_member(chat_id=f"@{channel}", user_id=user.tg_id)
@@ -217,7 +204,6 @@ async def cb_check(c: CallbackQuery):
         except Exception:
             ok = False
     elif task.type == "visit_link":
-        # Can't fully verify visiting; treat as manual confirmation with daily/onetime guard
         ok = True
 
     if not ok:
@@ -233,7 +219,7 @@ async def cb_check(c: CallbackQuery):
 from admin import admin_rt
 dp.include_router(admin_rt)
 
-# ---------- Web server (Render) ----------
+# ---------- Web server ----------
 async def on_startup(app: web.Application):
     await init_db()
     url = settings.webhook_url()
@@ -241,7 +227,6 @@ async def on_startup(app: web.Application):
         try:
             await bot.set_webhook(url)
         except Exception:
-            # If it fails, still run the app; you can set webhook manually later
             pass
 
 async def on_shutdown(app: web.Application):
