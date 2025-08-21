@@ -7,7 +7,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 
 from settings import settings
 from database import init_db, get_or_create_user, SessionLocal
-from models import User, Tahusk, TaskCompletion, Referral
+from models import User, Task, TaskCompletion, Referral
 from sqlalchemy import select, delete
 from timeutil import today_key
 
