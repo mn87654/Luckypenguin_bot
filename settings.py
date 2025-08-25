@@ -38,3 +38,29 @@ class Settings:
         return f"{self.WEBHOOK_BASE_URL}{self.WEBHOOK_PATH}"
 
 settings = Settings()
+
+# settings.py (add at bottom or inside Settings)
+from dataclasses import dataclass
+import os
+
+
+@dataclass
+class Settings:
+# ... your existing fields ...
+WEBAPP_PATH: str = os.environ.get("WEBAPP_PATH", "/app")
+
+
+def webhook_url(self) -> str | None:
+if not self.WEBHOOK_BASE_URL:
+host = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "")
+if host:
+return f"https://{host}{self.WEBHOOK_PATH}"
+return None
+return f"{self.WEBHOOK_BASE_URL}{self.WEBHOOK_PATH}"
+
+
+def webapp_url(self) -> str | None:
+host = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "")
+base = self.WEBHOOK_BASE_URL or (f"https://{host}" if host else None)
+return f"{base}{self.WEBAPP_PATH}" if base else None
+
