@@ -1,44 +1,29 @@
-#!/usr/bin/env bash
-# render-build.sh
-set -euo pipefail
-
-
-echo "🔧 Using Python: $(python --version || true)"
-echo "📦 Upgrading pip..."
-python -m pip install --upgrade pip
-
-
-echo "📚 Installing Python requirements..."
-pip install -r requirements.txt
-
-
-# --- Build the React WebApp (Vite) ---
-if [ -d "webapp" ]; then
-echo "🌐 webapp/ found. Building frontend..."
-
-
-pushd webapp >/dev/null
-
-
-# Prefer npm ci if lockfile exists (faster & reproducible)
-if [ -f "package-lock.json" ]; then
-echo "📦 Installing node deps via npm ci"
-npm ci
-else
-echo "📦 Installing node deps via npm install (no lockfile)"
-npm install
-fi
-
-
-echo "🏗️ Running build..."
-npm run build
-
-
-popd >/dev/null
-echo "✅ Frontend build complete (webapp/dist)"
-else
-echo "⚠️ webapp/ folder not found. Skipping frontend build."
-fi
-
-
-echo "✅ Build phase complete."
+{
+  "name": "webapp",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build && rm -rf dist && mv build dist",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-scripts": "5.0.1"
+  },
+  "devDependencies": {},
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
