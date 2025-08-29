@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 import path from 'path'
+
 export default defineConfig({
-base: '/app/', // must match settings.WEBAPP_PATH
-build: { outDir: 'dist' },
-resolve: { alias: { '@': path.resolve(__dirname, 'src') } }
+  plugins: [react()],
+  base: '/webapp/',
+  build: { outDir: 'dist' },
+  resolve: { alias: { '@': path.resolve(__dirname, 'src') } }
 })
