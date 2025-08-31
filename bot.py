@@ -1,5 +1,6 @@
 import os
 from aiohttp import web
+import aiohttp_cors   # <-- CORS library
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.filters import CommandStart, Command
@@ -43,10 +44,6 @@ def task_item_kb(task: Task) -> InlineKeyboardMarkup:
         buttons.append(InlineKeyboardButton(text="✅ Done (Check)", callback_data=f"check:{task.id}"))
     return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
-# ---------- Helpers ----------
-# (unchanged referral, task fetching, completion helpers)
-# ... [SAME AS BEFORE]
-
 # ---------- User commands ----------
 @rt.message(CommandStart())
 async def cmd_start(message: Message):
@@ -64,12 +61,10 @@ async def cmd_start(message: Message):
     )
     await message.answer(text, reply_markup=main_kb())
 
-# (keep all callbacks: help, balance, invite, tasks, daily, check as before)
-
 from admin import admin_rt
 dp.include_router(admin_rt)
 
-# ---------- Web APIs for WebApp ----------
+# ---------- Web APIs ----------
 async def api_me(request: web.Request):
     tg_id = int(request.query.get("tg_id", 0))
     if not tg_id:
@@ -111,15 +106,31 @@ def build_app() -> web.Application:
     app = web.Application()
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
+
+    # Telegram webhook
     SimpleRequestHandler(dispatcher=dp, bot=bot, webhook_path=settings.WEBHOOK_PATH).register(app, path=settings.WEBHOOK_PATH)
 
     # API endpoints
     app.router.add_get("/api/me", api_me)
     app.router.add_get("/api/daily/claim", api_daily_claim)
 
-    # Serve React build (webapp/dist)
+    # React build serve (frontend build folder)
     app.router.add_static("/webapp", path="./webapp/dist", name="webapp")
     app.router.add_get("/", lambda r: web.Response(text="Penguin Night bot is running."))
+
+    # ✅ Enable CORS for APIs
+    cors = aiohttp_cors.setup(app, defaults={
+        "*": aiohttp_cors.ResourceOptions(
+            allow_credentials=True,
+            expose_headers="*",
+            allow_headers="*",
+            allow_methods=["*"],
+        )
+    })
+
+    # Apply CORS to all routes
+    for route in list(app.router.routes()):
+        cors.add(route)
 
     return app
 
